@@ -1,5 +1,4 @@
 using UnityEngine;
-using UnityEngine.Assertions;
 using Unity.Collections;
 using Unity.Networking.Transport;
 using System.Text;
@@ -11,7 +10,7 @@ public class NetworkClient : MonoBehaviour
     NetworkPipeline reliableAndInOrderPipeline;
     NetworkPipeline nonReliableNotInOrderedPipeline;
     const ushort NetworkPort = 9001;
-    const string IPAddress = "192.168.2.20";
+    const string IPAddress = "10.0.0.82"; // Updated with your local IPv4 address
 
     void Start()
     {
@@ -45,7 +44,7 @@ public class NetworkClient : MonoBehaviour
 
         if (!networkConnection.IsCreated)
         {
-            Debug.Log("Client is unable to connect to server");
+            UnityEngine.Debug.Log("Client is unable to connect to server");
             return;
         }
 
@@ -60,14 +59,14 @@ public class NetworkClient : MonoBehaviour
         while (PopNetworkEventAndCheckForData(out networkEventType, out streamReader, out pipelineUsedToSendEvent))
         {
             if (pipelineUsedToSendEvent == reliableAndInOrderPipeline)
-                Debug.Log("Network event from: reliableAndInOrderPipeline");
+                UnityEngine.Debug.Log("Network event from: reliableAndInOrderPipeline");
             else if (pipelineUsedToSendEvent == nonReliableNotInOrderedPipeline)
-                Debug.Log("Network event from: nonReliableNotInOrderedPipeline");
+                UnityEngine.Debug.Log("Network event from: nonReliableNotInOrderedPipeline");
 
             switch (networkEventType)
             {
                 case NetworkEvent.Type.Connect:
-                    Debug.Log("We are now connected to the server");
+                    UnityEngine.Debug.Log("We are now connected to the server");
                     break;
                 case NetworkEvent.Type.Data:
                     int sizeOfDataBuffer = streamReader.ReadInt();
@@ -79,7 +78,7 @@ public class NetworkClient : MonoBehaviour
                     buffer.Dispose();
                     break;
                 case NetworkEvent.Type.Disconnect:
-                    Debug.Log("Client has disconnected from server");
+                    UnityEngine.Debug.Log("Client has disconnected from server");
                     networkConnection = default(NetworkConnection);
                     break;
             }
@@ -99,7 +98,7 @@ public class NetworkClient : MonoBehaviour
 
     private void ProcessReceivedMsg(string msg)
     {
-        Debug.Log("Msg received = " + msg);
+        UnityEngine.Debug.Log("Msg received = " + msg);
     }
 
     public void SendMessageToServer(string msg)
@@ -117,4 +116,3 @@ public class NetworkClient : MonoBehaviour
     }
 
 }
-
