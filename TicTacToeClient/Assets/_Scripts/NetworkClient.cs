@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.UI; // For UI components
 using Unity.Collections;
 using Unity.Networking.Transport;
 using System.Text;
@@ -9,20 +10,27 @@ public class NetworkClient : MonoBehaviour
     NetworkConnection networkConnection;
     NetworkPipeline reliableAndInOrderPipeline;
     NetworkPipeline nonReliableNotInOrderedPipeline;
+
     const ushort NetworkPort = 9001;
-    const string IPAddress = "10.0.0.82"; // Updated with your local IPv4 address
+    const string IPAddress = "127.0.0.1"; // Use localhost for testing
+
+    public UnityEngine.UI.Text gameStateText; // Reference to UI Text for game state
+    private Button[,] gridButtons = new Button[3, 3]; // 3x3 grid of buttons
 
     void Start()
     {
         networkDriver = NetworkDriver.Create();
         reliableAndInOrderPipeline = networkDriver.CreatePipeline(typeof(FragmentationPipelineStage), typeof(ReliableSequencedPipelineStage));
         nonReliableNotInOrderedPipeline = networkDriver.CreatePipeline(typeof(FragmentationPipelineStage));
+
         networkConnection = default(NetworkConnection);
         NetworkEndpoint endpoint = NetworkEndpoint.Parse(IPAddress, NetworkPort, NetworkFamily.Ipv4);
         networkConnection = networkDriver.Connect(endpoint);
+
+        InitializeGrid(); // Automatically find and assign buttons
     }
 
-    public void OnDestroy()
+    void OnDestroy()
     {
         networkConnection.Disconnect(networkDriver);
         networkConnection = default(NetworkConnection);
@@ -31,16 +39,7 @@ public class NetworkClient : MonoBehaviour
 
     void Update()
     {
-        #region Check Input and Send Msg
-
-        if (Input.GetKeyDown(KeyCode.A))
-            SendMessageToServer("Hello server's world, sincerely your network client");
-
-        #endregion
-
         networkDriver.ScheduleUpdate().Complete();
-
-        #region Check for client to server connection
 
         if (!networkConnection.IsCreated)
         {
@@ -48,43 +47,33 @@ public class NetworkClient : MonoBehaviour
             return;
         }
 
-        #endregion
-
-        #region Manage Network Events
-
-        NetworkEvent.Type networkEventType;
         DataStreamReader streamReader;
         NetworkPipeline pipelineUsedToSendEvent;
+        NetworkEvent.Type networkEventType;
 
         while (PopNetworkEventAndCheckForData(out networkEventType, out streamReader, out pipelineUsedToSendEvent))
         {
-            if (pipelineUsedToSendEvent == reliableAndInOrderPipeline)
-                UnityEngine.Debug.Log("Network event from: reliableAndInOrderPipeline");
-            else if (pipelineUsedToSendEvent == nonReliableNotInOrderedPipeline)
-                UnityEngine.Debug.Log("Network event from: nonReliableNotInOrderedPipeline");
-
             switch (networkEventType)
             {
                 case NetworkEvent.Type.Connect:
-                    UnityEngine.Debug.Log("We are now connected to the server");
+                    UnityEngine.Debug.Log("Connected to the server");
                     break;
+
                 case NetworkEvent.Type.Data:
                     int sizeOfDataBuffer = streamReader.ReadInt();
                     NativeArray<byte> buffer = new NativeArray<byte>(sizeOfDataBuffer, Allocator.Persistent);
                     streamReader.ReadBytes(buffer);
-                    byte[] byteBuffer = buffer.ToArray();
-                    string msg = Encoding.Unicode.GetString(byteBuffer);
+                    string msg = Encoding.Unicode.GetString(buffer.ToArray());
                     ProcessReceivedMsg(msg);
                     buffer.Dispose();
                     break;
+
                 case NetworkEvent.Type.Disconnect:
-                    UnityEngine.Debug.Log("Client has disconnected from server");
+                    UnityEngine.Debug.Log("Disconnected from server");
                     networkConnection = default(NetworkConnection);
                     break;
             }
         }
-
-        #endregion
     }
 
     private bool PopNetworkEventAndCheckForData(out NetworkEvent.Type networkEventType, out DataStreamReader streamReader, out NetworkPipeline pipelineUsedToSendEvent)
@@ -98,11 +87,27 @@ public class NetworkClient : MonoBehaviour
 
     private void ProcessReceivedMsg(string msg)
     {
-        UnityEngine.Debug.Log("Msg received = " + msg);
+        UnityEngine.Debug.Log("Message from server: " + msg);
+
+        if (msg.StartsWith("WIN"))
+        {
+            string winner = msg.Split('|')[1];
+            gameStateText.text = $"Player {winner} wins!";
+        }
+        else if (msg == "DRAW")
+        {
+            gameStateText.text = "It's a draw!";
+        }
+        else
+        {
+            // Update the board state
+            UpdateGridFromServer(msg);
+        }
     }
 
-    public void SendMessageToServer(string msg)
+    public void SendMoveToServer(int x, int y)
     {
+        string msg = $"MOVE|{GetPlayerNumber()}|{x}|{y}";
         byte[] msgAsByteArray = Encoding.Unicode.GetBytes(msg);
         NativeArray<byte> buffer = new NativeArray<byte>(msgAsByteArray, Allocator.Persistent);
 
@@ -115,4 +120,59 @@ public class NetworkClient : MonoBehaviour
         buffer.Dispose();
     }
 
+    private int GetPlayerNumber()
+    {
+        // This is a placeholder. Replace with actual logic to determine the player's number.
+        return 1; // Assume Player 1 for now
+    }
+
+    private void InitializeGrid()
+    {
+        for (int i = 0; i < 3; i++)
+        {
+            for (int j = 0; j < 3; j++)
+            {
+                string buttonName = $"Button_{i}_{j}";
+                GameObject buttonObject = GameObject.Find(buttonName);
+
+                if (buttonObject != null)
+                {
+                    gridButtons[i, j] = buttonObject.GetComponent<Button>();
+                    int x = i, y = j; // Capture local variables for the closure
+                    gridButtons[i, j].onClick.AddListener(() => OnCellClicked(x, y));
+                }
+                else
+                {
+                    UnityEngine.Debug.LogError($"Button {buttonName} not found in the scene!");
+                }
+            }
+        }
+    }
+
+    private void OnCellClicked(int x, int y)
+    {
+        SendMoveToServer(x, y);
+    }
+
+    private void UpdateGridFromServer(string gameState)
+    {
+        string[] parts = gameState.Split('|');
+        string boardData = parts[0];
+        int currentPlayer = int.Parse(parts[1]);
+        bool gameActive = bool.Parse(parts[2]);
+
+        string[] rows = boardData.Split(';');
+        for (int i = 0; i < 3; i++)
+        {
+            string[] cells = rows[i].Split(',');
+            for (int j = 0; j < 3; j++)
+            {
+                int value = int.Parse(cells[j]);
+                gridButtons[i, j].GetComponentInChildren<UnityEngine.UI.Text>().text = value == 1 ? "X" : value == 2 ? "O" : "";
+                gridButtons[i, j].interactable = (value == 0) && gameActive;
+            }
+        }
+
+        gameStateText.text = $"Player {currentPlayer}'s turn";
+    }
 }
