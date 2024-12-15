@@ -19,6 +19,7 @@ public class NetworkClient : MonoBehaviour
 
     private int playerNumber = 0; // Player number assigned by the server
     private int currentPlayer = 0; // Tracks whose turn it is
+    private bool gameActive = true; // Tracks if the game is active
 
     void Start()
     {
@@ -102,10 +103,12 @@ public class NetworkClient : MonoBehaviour
         {
             string winner = msg.Split('|')[1];
             gameStateText.text = $"Player {winner} wins!";
+            gameActive = false; // Stop further updates
         }
         else if (msg == "DRAW")
         {
             gameStateText.text = "It's a draw!";
+            gameActive = false; // Stop further updates
         }
         else
         {
@@ -115,6 +118,12 @@ public class NetworkClient : MonoBehaviour
 
     public void SendMoveToServer(int x, int y)
     {
+        if (!gameActive)
+        {
+            UnityEngine.Debug.Log("Game is over. Cannot send move.");
+            return;
+        }
+
         if (playerNumber == 0)
         {
             UnityEngine.Debug.Log("Player number not assigned yet. Cannot send move.");
@@ -154,6 +163,7 @@ public class NetworkClient : MonoBehaviour
                     gridButtons[i, j] = buttonObject.GetComponent<Button>();
                     int x = i, y = j; // Capture local variables for the closure
                     gridButtons[i, j].onClick.AddListener(() => OnCellClicked(x, y));
+                    UnityEngine.Debug.Log($"Initialized Button: {buttonName}");
                 }
                 else
                 {
@@ -181,7 +191,7 @@ public class NetworkClient : MonoBehaviour
 
             string boardData = parts[0];
             currentPlayer = int.Parse(parts[1]); // Update currentPlayer from the server
-            bool gameActive = bool.Parse(parts[2]);
+            gameActive = bool.Parse(parts[2]);
 
             UnityEngine.Debug.Log($"Current player: {currentPlayer}, Game active: {gameActive}");
 
@@ -192,7 +202,24 @@ public class NetworkClient : MonoBehaviour
                 for (int j = 0; j < 3; j++)
                 {
                     int value = int.Parse(cells[j]);
-                    gridButtons[i, j].GetComponentInChildren<UnityEngine.UI.Text>().text = value == 1 ? "X" : value == 2 ? "O" : "";
+
+                    // Null check for the button
+                    if (gridButtons[i, j] == null)
+                    {
+                        UnityEngine.Debug.LogError($"Button at ({i},{j}) is not assigned!");
+                        continue;
+                    }
+
+                    // Null check for the Text component
+                    UnityEngine.UI.Text buttonText = gridButtons[i, j].GetComponentInChildren<UnityEngine.UI.Text>();
+                    if (buttonText == null)
+                    {
+                        UnityEngine.Debug.LogError($"Text component on Button ({i},{j}) is not assigned!");
+                        continue;
+                    }
+
+                    // Update the button's text and interactability
+                    buttonText.text = value == 1 ? "X" : value == 2 ? "O" : "";
                     gridButtons[i, j].interactable = (value == 0) && gameActive;
                 }
             }
@@ -203,5 +230,28 @@ public class NetworkClient : MonoBehaviour
         {
             UnityEngine.Debug.LogError("Error in UpdateGridFromServer: " + ex.Message);
         }
+    }
+
+    public void ResetGame()
+    {
+        for (int i = 0; i < 3; i++)
+        {
+            for (int j = 0; j < 3; j++)
+            {
+                if (gridButtons[i, j] != null)
+                {
+                    UnityEngine.UI.Text buttonText = gridButtons[i, j].GetComponentInChildren<UnityEngine.UI.Text>();
+                    if (buttonText != null)
+                    {
+                        buttonText.text = ""; // Clear text
+                    }
+                    gridButtons[i, j].interactable = true; // Re-enable buttons
+                }
+            }
+        }
+
+        currentPlayer = 1; // Player 1 starts
+        gameActive = true; // Reactivate the game
+        gameStateText.text = "Player 1's turn";
     }
 }
