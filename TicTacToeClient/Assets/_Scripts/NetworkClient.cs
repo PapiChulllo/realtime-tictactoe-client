@@ -1,5 +1,5 @@
 using UnityEngine;
-using UnityEngine.UI; // For UI components
+using UnityEngine.UI;
 using Unity.Collections;
 using Unity.Networking.Transport;
 using System.Text;
@@ -12,10 +12,13 @@ public class NetworkClient : MonoBehaviour
     NetworkPipeline nonReliableNotInOrderedPipeline;
 
     const ushort NetworkPort = 9001;
-    const string IPAddress = "127.0.0.1"; // Use localhost for testing
+    const string IPAddress = "127.0.0.1"; // Change to your server IP if needed
 
-    public UnityEngine.UI.Text gameStateText; // Reference to UI Text for game state
+    public UnityEngine.UI.Text gameStateText; // Reference to a UI Text element for displaying game state
     private Button[,] gridButtons = new Button[3, 3]; // 3x3 grid of buttons
+
+    private int playerNumber = 0; // Player number assigned by the server
+    private int currentPlayer = 0; // Tracks whose turn it is
 
     void Start()
     {
@@ -65,7 +68,7 @@ public class NetworkClient : MonoBehaviour
                     streamReader.ReadBytes(buffer);
                     string msg = Encoding.Unicode.GetString(buffer.ToArray());
                     ProcessReceivedMsg(msg);
-                    buffer.Dispose();
+                    buffer.Dispose(); // Prevent memory leaks
                     break;
 
                 case NetworkEvent.Type.Disconnect:
@@ -82,6 +85,7 @@ public class NetworkClient : MonoBehaviour
 
         if (networkEventType == NetworkEvent.Type.Empty)
             return false;
+
         return true;
     }
 
@@ -89,7 +93,12 @@ public class NetworkClient : MonoBehaviour
     {
         UnityEngine.Debug.Log("Message from server: " + msg);
 
-        if (msg.StartsWith("WIN"))
+        if (msg.StartsWith("PLAYER"))
+        {
+            playerNumber = int.Parse(msg.Split('|')[1]);
+            UnityEngine.Debug.Log($"Assigned as Player {playerNumber}");
+        }
+        else if (msg.StartsWith("WIN"))
         {
             string winner = msg.Split('|')[1];
             gameStateText.text = $"Player {winner} wins!";
@@ -100,14 +109,25 @@ public class NetworkClient : MonoBehaviour
         }
         else
         {
-            // Update the board state
-            UpdateGridFromServer(msg);
+            UpdateGridFromServer(msg); // Parse and update game state
         }
     }
 
     public void SendMoveToServer(int x, int y)
     {
-        string msg = $"MOVE|{GetPlayerNumber()}|{x}|{y}";
+        if (playerNumber == 0)
+        {
+            UnityEngine.Debug.Log("Player number not assigned yet. Cannot send move.");
+            return;
+        }
+
+        if (playerNumber != currentPlayer)
+        {
+            UnityEngine.Debug.Log($"It's not your turn! Current player: {currentPlayer}, Your player number: {playerNumber}");
+            return;
+        }
+
+        string msg = $"MOVE|{playerNumber}|{x}|{y}";
         byte[] msgAsByteArray = Encoding.Unicode.GetBytes(msg);
         NativeArray<byte> buffer = new NativeArray<byte>(msgAsByteArray, Allocator.Persistent);
 
@@ -118,12 +138,6 @@ public class NetworkClient : MonoBehaviour
         networkDriver.EndSend(streamWriter);
 
         buffer.Dispose();
-    }
-
-    private int GetPlayerNumber()
-    {
-        // This is a placeholder. Replace with actual logic to determine the player's number.
-        return 1; // Assume Player 1 for now
     }
 
     private void InitializeGrid()
@@ -156,23 +170,38 @@ public class NetworkClient : MonoBehaviour
 
     private void UpdateGridFromServer(string gameState)
     {
-        string[] parts = gameState.Split('|');
-        string boardData = parts[0];
-        int currentPlayer = int.Parse(parts[1]);
-        bool gameActive = bool.Parse(parts[2]);
-
-        string[] rows = boardData.Split(';');
-        for (int i = 0; i < 3; i++)
+        try
         {
-            string[] cells = rows[i].Split(',');
-            for (int j = 0; j < 3; j++)
+            string[] parts = gameState.Split('|');
+            if (parts.Length != 3)
             {
-                int value = int.Parse(cells[j]);
-                gridButtons[i, j].GetComponentInChildren<UnityEngine.UI.Text>().text = value == 1 ? "X" : value == 2 ? "O" : "";
-                gridButtons[i, j].interactable = (value == 0) && gameActive;
+                UnityEngine.Debug.LogError("Malformed game state: " + gameState);
+                return;
             }
-        }
 
-        gameStateText.text = $"Player {currentPlayer}'s turn";
+            string boardData = parts[0];
+            currentPlayer = int.Parse(parts[1]); // Update currentPlayer from the server
+            bool gameActive = bool.Parse(parts[2]);
+
+            UnityEngine.Debug.Log($"Current player: {currentPlayer}, Game active: {gameActive}");
+
+            string[] rows = boardData.Split(';');
+            for (int i = 0; i < 3; i++)
+            {
+                string[] cells = rows[i].Split(',');
+                for (int j = 0; j < 3; j++)
+                {
+                    int value = int.Parse(cells[j]);
+                    gridButtons[i, j].GetComponentInChildren<UnityEngine.UI.Text>().text = value == 1 ? "X" : value == 2 ? "O" : "";
+                    gridButtons[i, j].interactable = (value == 0) && gameActive;
+                }
+            }
+
+            gameStateText.text = gameActive ? $"Player {currentPlayer}'s turn" : "Game Over!";
+        }
+        catch (System.Exception ex)
+        {
+            UnityEngine.Debug.LogError("Error in UpdateGridFromServer: " + ex.Message);
+        }
     }
 }
